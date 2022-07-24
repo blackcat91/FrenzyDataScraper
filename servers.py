@@ -8,6 +8,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import pyodbc
 import requests
 import constants
+import html
 import re
 from bs4 import BeautifulSoup
 
@@ -32,7 +33,13 @@ def main():
         
 
 def get_details(soup : BeautifulSoup):
-    title = soup.select_one('.film-name').text
+    chrome_options = Options()
+
+    chrome_options.add_argument("--headless")
+
+
+    driver = webdriver.Chrome(options=chrome_options, service=Service(ChromeDriverManager().install()))
+    title = html.escape(soup.select_one('.film-name').text)
     select_sql = f"SELECT Id FROM Details WHERE Title= '{title}'"
     with pyodbc.connect(constants.CNXN_STR) as connection:
         data = pd.read_sql_query(select_sql, connection)
@@ -49,16 +56,11 @@ def get_details(soup : BeautifulSoup):
             except:
                 epNum = int(episode.text.lstrip().rstrip().split("-")[0])
             episodeLink = constants.BASEURL+episode.get('href')
-            get_server_links(episodeLink, animeId,epNum, connection)
-        connection.close()
+            get_server_links(episodeLink, animeId,epNum, connection, driver)
+    driver.close()
 
-def get_server_links(epLink : str, animeId,epNum: int,  connection: pyodbc.Connection ) :
-    chrome_options = Options()
-
-    chrome_options.add_argument("--headless")
-
-
-    driver = webdriver.Chrome(options=chrome_options, service=Service(ChromeDriverManager().install()))
+def get_server_links(epLink : str, animeId,epNum: int,  connection: pyodbc.Connection , driver : webdriver.Chrome) :
+    
     driver.get(epLink)
 
 
@@ -76,7 +78,7 @@ def get_server_links(epLink : str, animeId,epNum: int,  connection: pyodbc.Conne
     connection.commit()
     print("Servers Added!")
             
-    driver.close()
+    
     
     
 if __name__ == '__main__':
