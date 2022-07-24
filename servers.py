@@ -8,6 +8,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import pyodbc
 import requests
 import constants
+import re
 from bs4 import BeautifulSoup
 
 PARSER = 'html.parser'
@@ -15,7 +16,7 @@ PARSER = 'html.parser'
 def main():
  
     for page in range(1, constants.MAX_PAGES):
-        with requests.get(constants.PAGEURL+page) as response:
+        with requests.get(constants.PAGEURL+str(page)) as response:
             html = response.text
         
         soup = BeautifulSoup(html, PARSER)
@@ -37,16 +38,21 @@ def get_details(soup : BeautifulSoup):
         data = pd.read_sql_query(select_sql, connection)
         animeId = data['Id'][0]
     episodesLink = soup.select_one('.film-buttons .btn-play').get('href')
+    
     episodesPage = requests.get(constants.BASEURL+episodesLink)
     episodesSoup = BeautifulSoup(episodesPage.text, PARSER)
     episodes = episodesSoup.select('.detail-infor-content>.ss-list> a')
     with pyodbc.connect(constants.CNXN_STR) as connection:
         for episode in episodes:
+            try:
+                epNum = int(episode.text)
+            except:
+                epNum = int(episode.text.lstrip().rstrip().split("-")[0])
             episodeLink = constants.BASEURL+episode.get('href')
-            get_server_links(episodeLink, animeId)
-     
+            get_server_links(episodeLink, animeId,epNum, connection)
+        connection.close()
 
-def get_server_links(epLink : str, animeId ) :
+def get_server_links(epLink : str, animeId,epNum: int,  connection: pyodbc.Connection ) :
     chrome_options = Options()
 
     chrome_options.add_argument("--headless")
@@ -59,19 +65,19 @@ def get_server_links(epLink : str, animeId ) :
     servers = driver.find_elements(By.CSS_SELECTOR, "a.btn-server")
     
 
-    with pyodbc.connect(constants.CNXN_STR) as connection:
-        print("Creating Servers...")
-        for server in servers:
-            href = server.get_attribute("href")
-            name = server.text.lstrip().rstrip()
-            insert_episode_sql = f"INSERT INTO Links  VALUES('{animeId}', '{name}', '{href}')"
-            connection.execute(insert_episode_sql)
+    
+    print("Creating Servers...")
+    for server in servers:
+        href = server.get_attribute("href")
+        name = server.text.lstrip().rstrip()
+        insert_episode_sql = f"INSERT INTO Links  VALUES('{animeId}', '{epNum}', '{name}', '{href}')"
+        connection.execute(insert_episode_sql)
         
-        connection.commit()
-        print("Servers Added!")
+    connection.commit()
+    print("Servers Added!")
             
     driver.close()
     
     
-    if __name__ == '__main__':
-        main()
+if __name__ == '__main__':
+    main()
