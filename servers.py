@@ -8,7 +8,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import pyodbc
 import requests
 import constants
-from concurrent.futures.thread import ThreadPoolExecutor
+import html
 import re
 from bs4 import BeautifulSoup
 
@@ -22,13 +22,13 @@ def main():
         
         soup = BeautifulSoup(html, PARSER)
         animes = soup.select('.flw-item > .film-poster > a')
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            for anime in animes:
-                link = anime.get('href')
-                animePage = requests.get(constants.BASEURL+link)
-                animeSoup = BeautifulSoup(animePage.text, PARSER)
-                executor.submit(get_details, animeSoup)
-                
+        
+        for anime in animes:
+            link = anime.get('href')
+            animePage = requests.get(constants.BASEURL+link)
+            animeSoup = BeautifulSoup(animePage.text, PARSER)
+            
+            get_details(animeSoup)
            
         
 
@@ -39,29 +39,28 @@ def get_details(soup : BeautifulSoup):
 
 
     driver = webdriver.Chrome(options=chrome_options, service=Service(ChromeDriverManager().install()))
-    try:
-        title = soup.select_one('.film-name').text
-        select_sql = f"SELECT Id FROM Details WHERE Title= '{title}'"
-        with pyodbc.connect(constants.CNXN_STR) as connection:
-            data = pd.read_sql_query(select_sql, connection)
-            animeId = data['Id'][0]
-        episodesLink = soup.select_one('.film-buttons .btn-play').get('href')
+   
+    title = html.escape(soup.select_one('.film-name').text)
+    select_sql = f"SELECT Id FROM Details WHERE Title= '{title}'"
+    with pyodbc.connect(constants.CNXN_STR) as connection:
+        data = pd.read_sql_query(select_sql, connection)
+        animeId = data['Id'][0]
+    episodesLink = soup.select_one('.film-buttons .btn-play').get('href')
+    
+    episodesPage = requests.get(constants.BASEURL+episodesLink)
+    episodesSoup = BeautifulSoup(episodesPage.text, PARSER)
+    episodes = episodesSoup.select('.detail-infor-content>.ss-list> a')
+    with pyodbc.connect(constants.CNXN_STR) as connection:
+        for episode in episodes:
+            try:
+                epNum = int(episode.text)
+            except:
+                epNum = int(episode.text.lstrip().rstrip().split("-")[0])
+            episodeLink = constants.BASEURL+episode.get('href')
+            get_server_links(episodeLink, animeId,epNum, connection, driver)
+    driver.close()
+ 
         
-        episodesPage = requests.get(constants.BASEURL+episodesLink)
-        episodesSoup = BeautifulSoup(episodesPage.text, PARSER)
-        episodes = episodesSoup.select('.detail-infor-content>.ss-list> a')
-        with pyodbc.connect(constants.CNXN_STR) as connection:
-            for episode in episodes:
-                try:
-                    epNum = int(episode.text)
-                except:
-                    epNum = int(episode.text.lstrip().rstrip().split("-")[0])
-                episodeLink = constants.BASEURL+episode.get('href')
-                get_server_links(episodeLink, animeId,epNum, connection, driver)
-        driver.close()
-    except Exception as e:
-        driver.close()
-        print(e)
         
 
 def get_server_links(epLink : str, animeId,epNum: int,  connection: pyodbc.Connection, driver : webdriver.Chrome ) :
